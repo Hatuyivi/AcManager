@@ -6,13 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aiaccounts.manager.data.AccountRepository
 import com.aiaccounts.manager.navigation.Screen
-import com.aiaccounts.manager.ui.AccountListScreen
+import com.aiaccounts.manager.ui.EmptyScreen
 import com.aiaccounts.manager.ui.WebViewScreen
 import com.aiaccounts.manager.ui.theme.AIAccountManagerTheme
 
@@ -33,26 +34,28 @@ class MainActivity : ComponentActivity() {
             AIAccountManagerTheme {
                 val accounts by viewModel.accounts.collectAsStateWithLifecycle()
                 val activeAccountId by viewModel.activeAccountId.collectAsStateWithLifecycle()
+                val currentScreen = remember { mutableStateOf<Screen>(Screen.Empty) }
 
-                val currentScreen = remember { mutableStateOf<Screen>(Screen.AccountList) }
+                LaunchedEffect(accounts, activeAccountId) {
+                    if (accounts.isEmpty()) {
+                        currentScreen.value = Screen.Empty
+                    } else {
+                        val screen = currentScreen.value
+                        when {
+                            screen is Screen.Web && accounts.any { it.id == screen.accountId } -> Unit
+                            activeAccountId != null && accounts.any { it.id == activeAccountId } ->
+                                currentScreen.value = Screen.Web(activeAccountId!!)
+                            else ->
+                                currentScreen.value = Screen.Web(accounts.first().id)
+                        }
+                    }
+                }
 
                 when (val screen = currentScreen.value) {
-                    is Screen.AccountList -> {
-                        AccountListScreen(
-                            accounts = accounts,
-                            activeAccountId = activeAccountId,
-                            onSelectAccount = { id ->
-                                viewModel.selectAccount(id)
-                            },
-                            onDeleteAccount = { id ->
-                                viewModel.deleteAccount(id)
-                            },
+                    is Screen.Empty -> {
+                        EmptyScreen(
                             onAddAccount = { name, platform, url ->
                                 viewModel.addAccount(name, platform, url)
-                            },
-                            onOpenWebView = { accountId ->
-                                viewModel.selectAccount(accountId)
-                                currentScreen.value = Screen.Web(accountId)
                             }
                         )
                     }
@@ -61,24 +64,37 @@ class MainActivity : ComponentActivity() {
                         val account = accounts.find { it.id == screen.accountId }
                         if (account != null) {
                             WebViewScreen(
+                                accounts = accounts,
+                                activeAccountId = activeAccountId,
                                 account = account,
-                                onBack = {
-                                    currentScreen.value = Screen.AccountList
+                                onSwitchAccount = { id ->
+                                    viewModel.selectAccount(id)
+                                    currentScreen.value = Screen.Web(id)
+                                },
+                                onDeleteAccount = { id ->
+                                    viewModel.deleteAccount(id)
+                                    val remaining = accounts.filter { it.id != id }
+                                    currentScreen.value = if (remaining.isEmpty()) {
+                                        Screen.Empty
+                                    } else {
+                                        Screen.Web(remaining.first().id)
+                                    }
+                                },
+                                onAddAccount = { name, platform, url ->
+                                    viewModel.addAccount(name, platform, url)
+                                },
+                                onNewAccountOpened = { newId ->
+                                    viewModel.selectAccount(newId)
+                                    currentScreen.value = Screen.Web(newId)
                                 },
                                 onMessageSent = {
                                     viewModel.incrementMessageCount(screen.accountId)
                                 }
                             )
-                        } else {
-                            currentScreen.value = Screen.AccountList
                         }
                     }
                 }
             }
         }
-    }
-
-    override fun onBackPressed() {
-        super.onBackPressed()
     }
 }
