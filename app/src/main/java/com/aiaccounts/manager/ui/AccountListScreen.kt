@@ -3,7 +3,6 @@ package com.aiaccounts.manager.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,7 +13,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,17 +41,29 @@ fun Platform.displayName(): String = when (this) {
     Platform.GEMINI -> "Gemini"
 }
 
+fun generateNameFromLogin(input: String): String {
+    val local = if (input.contains("@")) input.substringBefore("@") else input
+    return local
+        .split(".", "_", "-", "+")
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { it.uppercase() }
+        }
+        .ifBlank { input.ifBlank { "Account" } }
+}
+
 @Composable
 fun AddAccountDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, platform: Platform, url: String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    var login by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("https://claude.ai") }
     var platform by remember { mutableStateOf(Platform.CLAUDE) }
     var platformMenuExpanded by remember { mutableStateOf(false) }
-    var nameError by remember { mutableStateOf(false) }
-    var urlError by remember { mutableStateOf(false) }
+    var loginError by remember { mutableStateOf(false) }
+
+    val generatedName = generateNameFromLogin(login)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -61,12 +71,18 @@ fun AddAccountDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; nameError = false },
-                    label = { Text("Название аккаунта") },
-                    isError = nameError,
-                    supportingText = if (nameError) ({ Text("Введите название") }) else null,
+                    value = login,
+                    onValueChange = { login = it; loginError = false },
+                    label = { Text("Логин или email") },
+                    placeholder = { Text("example@gmail.com") },
+                    isError = loginError,
+                    supportingText = if (loginError) {
+                        { Text("Введите логин или email") }
+                    } else if (login.isNotBlank()) {
+                        { Text("Имя: $generatedName", color = Color.Gray, fontSize = 12.sp) }
+                    } else null,
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -110,10 +126,8 @@ fun AddAccountDialog(
 
                 OutlinedTextField(
                     value = url,
-                    onValueChange = { url = it; urlError = false },
+                    onValueChange = { url = it },
                     label = { Text("URL") },
-                    isError = urlError,
-                    supportingText = if (urlError) ({ Text("Введите URL") }) else null,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth()
@@ -123,9 +137,8 @@ fun AddAccountDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    nameError = name.isBlank()
-                    urlError = url.isBlank()
-                    if (!nameError && !urlError) onConfirm(name, platform, url)
+                    loginError = login.isBlank()
+                    if (!loginError) onConfirm(generatedName, platform, url)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
             ) { Text("Добавить") }

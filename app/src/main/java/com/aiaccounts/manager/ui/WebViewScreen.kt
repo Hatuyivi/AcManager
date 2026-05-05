@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -29,18 +29,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +55,6 @@ import com.aiaccounts.manager.model.Account
 import com.aiaccounts.manager.model.Platform
 import com.aiaccounts.manager.webview.WebViewManager
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WebViewScreen(
     accounts: List<Account>,
@@ -85,71 +81,13 @@ fun WebViewScreen(
         if (wv != null && wv.canGoBack()) wv.goBack()
     }
 
-    Scaffold(
-        topBar = {
-            Column {
-                TopAppBar(
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            val wv = webViewRef
-                            if (wv != null && wv.canGoBack()) wv.goBack()
-                        }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Назад",
-                                tint = Color.White
-                            )
-                        }
-                    },
-                    title = {
-                        Box(modifier = Modifier.wrapContentSize()) {
-                            AccountSwitcherButton(
-                                account = account,
-                                onClick = { dropdownExpanded = true }
-                            )
-                            AccountDropdownMenu(
-                                expanded = dropdownExpanded,
-                                accounts = accounts,
-                                activeAccountId = activeAccountId,
-                                onDismiss = { dropdownExpanded = false },
-                                onSelect = { id ->
-                                    dropdownExpanded = false
-                                    if (id != account.id) onSwitchAccount(id)
-                                },
-                                onDelete = { id ->
-                                    dropdownExpanded = false
-                                    onDeleteAccount(id)
-                                },
-                                onAddClick = {
-                                    dropdownExpanded = false
-                                    showAddDialog = true
-                                }
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Black,
-                        titleContentColor = Color.White
-                    )
-                )
-                if (isLoading) {
-                    LinearProgressIndicator(
-                        progress = { loadProgress },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = accentColor,
-                        trackColor = Color.Black.copy(alpha = 0.15f)
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+
+        // WebView — fills entire screen (edge-to-edge)
+        key(account.id) {
             AndroidView(
                 factory = { context ->
+                    WebViewManager.clearCookies()
                     WebView(context).also { wv ->
                         webViewRef = wv
                         WebViewManager.configure(wv)
@@ -191,24 +129,64 @@ fun WebViewScreen(
                         wv.loadUrl(account.url)
                     }
                 },
-                update = { wv ->
-                    if (wv.url != account.url && !isLoading) {
-                        WebViewManager.clearSessionData(wv)
-                        wv.loadUrl(account.url)
-                    }
-                },
                 modifier = Modifier.fillMaxSize()
             )
+        }
 
-            if (hasError) {
-                ErrorOverlay(
-                    accentColor = accentColor,
-                    onRetry = {
-                        hasError = false
-                        webViewRef?.reload()
-                    }
-                )
-            }
+        // Loading progress bar — just below status bar
+        if (isLoading) {
+            LinearProgressIndicator(
+                progress = { loadProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .align(Alignment.TopStart),
+                color = accentColor,
+                trackColor = Color.Transparent
+            )
+        }
+
+        // Floating account switcher pill — top center
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 8.dp)
+                .wrapContentSize()
+        ) {
+            FloatingAccountPill(
+                account = account,
+                onClick = { dropdownExpanded = true }
+            )
+            AccountDropdownMenu(
+                expanded = dropdownExpanded,
+                accounts = accounts,
+                activeAccountId = activeAccountId,
+                onDismiss = { dropdownExpanded = false },
+                onSelect = { id ->
+                    dropdownExpanded = false
+                    if (id != account.id) onSwitchAccount(id)
+                },
+                onDelete = { id ->
+                    dropdownExpanded = false
+                    onDeleteAccount(id)
+                },
+                onAddClick = {
+                    dropdownExpanded = false
+                    showAddDialog = true
+                }
+            )
+        }
+
+        // Error overlay
+        if (hasError) {
+            ErrorOverlay(
+                accentColor = accentColor,
+                onRetry = {
+                    hasError = false
+                    webViewRef?.reload()
+                }
+            )
         }
     }
 
@@ -224,25 +202,25 @@ fun WebViewScreen(
 }
 
 @Composable
-private fun AccountSwitcherButton(
+private fun FloatingAccountPill(
     account: Account,
     onClick: () -> Unit
 ) {
     val accent = account.platform.accentColor()
     Button(
         onClick = onClick,
+        shape = RoundedCornerShape(50.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color.White.copy(alpha = 0.12f),
+            containerColor = Color.Black.copy(alpha = 0.82f),
             contentColor = Color.White
         ),
-        shape = RoundedCornerShape(8.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-        elevation = null,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f))
     ) {
         Surface(
             shape = RoundedCornerShape(4.dp),
-            color = accent.copy(alpha = 0.25f)
+            color = accent.copy(alpha = 0.28f)
         ) {
             Text(
                 text = account.platform.displayName(),
@@ -252,7 +230,7 @@ private fun AccountSwitcherButton(
                 color = accent
             )
         }
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = account.name,
             fontSize = 14.sp,
@@ -261,12 +239,12 @@ private fun AccountSwitcherButton(
             overflow = TextOverflow.Ellipsis,
             color = Color.White
         )
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Icon(
             Icons.Default.KeyboardArrowDown,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
-            tint = Color.White.copy(alpha = 0.7f)
+            tint = Color.White.copy(alpha = 0.6f)
         )
     }
 }
@@ -317,17 +295,11 @@ private fun AccountDropdownMenu(
                         )
                         if (isActive) {
                             Spacer(modifier = Modifier.width(4.dp))
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFFE8F5E9)
-                            ) {
-                                Text(
-                                    text = "●",
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    fontSize = 8.sp,
-                                    color = Color(0xFF2E7D32)
-                                )
-                            }
+                            Text(
+                                text = "●",
+                                fontSize = 8.sp,
+                                color = Color(0xFF2E7D32)
+                            )
                         }
                     }
                 },
@@ -393,7 +365,7 @@ private fun ErrorOverlay(
             )
             Spacer(modifier = Modifier.padding(vertical = 6.dp))
             Text(
-                text = "Проверьте интернет-соединение и попробуйте ещё раз.",
+                text = "Проверьте интернет-соединение\nи попробуйте ещё раз.",
                 fontSize = 14.sp,
                 color = Color.Gray,
                 textAlign = TextAlign.Center

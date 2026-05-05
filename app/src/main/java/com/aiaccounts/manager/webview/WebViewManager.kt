@@ -35,15 +35,18 @@ object WebViewManager {
         }
     }
 
+    fun clearCookies() {
+        CookieManager.getInstance().apply {
+            removeAllCookies(null)
+            flush()
+        }
+    }
+
     fun clearSessionData(webView: WebView) {
         webView.stopLoading()
         webView.clearHistory()
         webView.clearCache(true)
         webView.clearFormData()
-
-        CookieManager.getInstance().apply {
-            removeAllCookies(null)
-            flush()
-        }
+        clearCookies()
     }
 }
