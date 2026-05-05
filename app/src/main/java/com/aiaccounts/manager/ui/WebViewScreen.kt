@@ -37,7 +37,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +72,10 @@ fun WebViewScreen(
     var hasError by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    // Track which account is currently loaded in the WebView
+    // to avoid reloading on unrelated recompositions
+    var loadedAccountId by remember { mutableStateOf("") }
+
     var dropdownExpanded by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -83,57 +86,65 @@ fun WebViewScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // WebView — fills entire screen (edge-to-edge)
-        key(account.id) {
-            AndroidView(
-                factory = { context ->
-                    WebViewManager.clearCookies()
-                    WebView(context).also { wv ->
-                        webViewRef = wv
-                        WebViewManager.configure(wv)
+        // Single WebView — never destroyed, cookies preserved between switches
+        AndroidView(
+            factory = { context ->
+                WebView(context).also { wv ->
+                    webViewRef = wv
+                    WebViewManager.configure(wv)
 
-                        wv.webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                                isLoading = true
-                                hasError = false
-                            }
-                            override fun onPageFinished(view: WebView, url: String) {
+                    wv.webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                            isLoading = true
+                            hasError = false
+                        }
+                        override fun onPageFinished(view: WebView, url: String) {
+                            isLoading = false
+                        }
+                        override fun onReceivedError(
+                            view: WebView,
+                            request: WebResourceRequest,
+                            error: WebResourceError
+                        ) {
+                            if (request.isForMainFrame) {
                                 isLoading = false
-                            }
-                            override fun onReceivedError(
-                                view: WebView,
-                                request: WebResourceRequest,
-                                error: WebResourceError
-                            ) {
-                                if (request.isForMainFrame) {
-                                    isLoading = false
-                                    hasError = true
-                                }
-                            }
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView,
-                                request: WebResourceRequest
-                            ): Boolean {
-                                val url = request.url.toString()
-                                return url.startsWith("intent:") || url.startsWith("market:")
+                                hasError = true
                             }
                         }
-
-                        wv.webChromeClient = object : WebChromeClient() {
-                            override fun onProgressChanged(view: WebView, newProgress: Int) {
-                                loadProgress = newProgress / 100f
-                                if (newProgress == 100) isLoading = false
-                            }
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView,
+                            request: WebResourceRequest
+                        ): Boolean {
+                            val url = request.url.toString()
+                            return url.startsWith("intent:") || url.startsWith("market:")
                         }
-
-                        wv.loadUrl(account.url)
                     }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
 
-        // Loading progress bar — just below status bar
+                    wv.webChromeClient = object : WebChromeClient() {
+                        override fun onProgressChanged(view: WebView, newProgress: Int) {
+                            loadProgress = newProgress / 100f
+                            if (newProgress == 100) isLoading = false
+                        }
+                    }
+
+                    // Initial load — no cookie clear
+                    wv.loadUrl(account.url)
+                    loadedAccountId = account.id
+                }
+            },
+            update = { wv ->
+                // Navigate only when account actually switches — compare by id, not url
+                if (account.id != loadedAccountId) {
+                    loadedAccountId = account.id
+                    isLoading = true
+                    hasError = false
+                    wv.loadUrl(account.url)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Thin progress bar just below status bar
         if (isLoading) {
             LinearProgressIndicator(
                 progress = { loadProgress },
@@ -146,7 +157,7 @@ fun WebViewScreen(
             )
         }
 
-        // Floating account switcher pill — top center
+        // Floating pill — top center
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -273,7 +284,9 @@ private fun AccountDropdownMenu(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = acc.platform.accentColor().copy(alpha = if (isActive) 0.18f else 0.08f)
+                            color = acc.platform.accentColor().copy(
+                                alpha = if (isActive) 0.18f else 0.08f
+                            )
                         ) {
                             Text(
                                 text = acc.platform.displayName(),
